@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blog API Frontend</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .login-form, .post-form {
+            display: none;
+        }
+        .login-form.active, .post-form.active {
+            display: block;
+        }
+        input, textarea, button {
+            padding: 10px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .error {
+            color: red;
+            margin: 10px 0;
+        }
+        .success {
+            color: green;
+            margin: 10px 0;
+        }
+        .post {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+            background: #f9f9f9;
+        }
+        .post-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .post-content {
+            margin-bottom: 10px;
+        }
+        .post-image {
+            max-width: 200px;
+            height: auto;
+            margin: 10px 0;
+        }
+        .user-info {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .hidden {
+            display: none;
+        }
+        .admin-controls {
+            margin-top: 10px;
+        }
+        .admin-controls button {
+            margin-right: 5px;
+            font-size: 12px;
+            padding: 5px 10px;
+        }
+        .edit-btn {
+            background: #28a745;
+        }
+        .delete-btn {
+            background: #dc3545;
+        }
+        #imageUpload {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Blog API Frontend</h1>
+
+    <!-- User Info -->
+    <div id="userInfo" class="user-info hidden">
+        <span id="username"></span> |
+        <span id="userRoles"></span> |
+        <button onclick="logout()">Logout</button>
+    </div>
+
+    <!-- Login Form -->
+    <div id="loginForm" class="login-form active">
+        <h2>Login</h2>
+        <input type="text" id="loginUsername" placeholder="Benutzername" value="admin">
+        <input type="password" id="loginPassword" placeholder="Passwort" value="admin123">
+        <button onclick="login()">Anmelden</button>
+        <div id="loginError" class="error"></div>
+    </div>
+
+    <!-- Create Post Form -->
+    <div id="postForm" class="post-form">
+        <h2>Neuen Beitrag erstellen</h2>
+        <input type="text" id="postTitle" placeholder="Titel" required>
+        <textarea id="postContent" placeholder="Inhalt (min. 10 Zeichen)" rows="5" required></textarea>
+        <div id="imageUpload">
+            <input type="file" id="imageFile" accept="image/jpeg,image/png">
+            <small>Bild optional (JPEG/PNG, max. 5MB)</small>
+        </div>
+        <button onclick="createPost()">Beitrag erstellen</button>
+        <div id="postError" class="error"></div>
+        <div id="postSuccess" class="success"></div>
+    </div>
+
+    <!-- Edit Post Form -->
+    <div id="editForm" class="post-form">
+        <h2>Beitrag bearbeiten</h2>
+        <input type="hidden" id="editPostId">
+        <input type="text" id="editTitle" placeholder="Titel" required>
+        <textarea id="editContent" placeholder="Inhalt (min. 10 Zeichen)" rows="5" required></textarea>
+        <div id="editImageUpload">
+            <input type="file" id="editImageFile" accept="image/jpeg,image/png">
+            <small>Neues Bild (optional)</small>
+        </div>
+        <button onclick="updatePost()">Speichern</button>
+        <button onclick="cancelEdit()">Abbrechen</button>
+        <div id="editError" class="error"></div>
+    </div>
+</div>
+
+<div class="container">
+    <h2>Blog Beiträge</h2>
+    <div id="posts"></div>
+    <div id="postsError" class="error"></div>
+</div>
+
+<script>
+    const API_BASE = 'http://localhost:8080';
+    let currentUser = null;
+    let jwtToken = localStorage.getItem('jwtToken');
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        if (jwtToken) {
+            checkUser();
+        } else {
+            loadPosts();
+        }
+    });
+
+    async function login() {
+        const username = document.getElementById('loginUsername').value;
+        const password = document.getElementById('loginPassword').value;
+
+        try {
+            const response = await fetch(`${API_BASE}/auth/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                jwtToken = data.token;
+                localStorage.setItem('jwtToken', jwtToken);
+                await checkUser();
+                document.getElementById('loginError').textContent = '';
+            } else {
+                const error = await response.json();
+                document.getElementById('loginError').textContent = error.error || 'Login fehlgeschlagen';
+            }
+        } catch (error) {
+            document.getElementById('loginError').textContent = 'Verbindungsfehler';
+        }
+    }
+
+    async function checkUser() {
+        try {
+            const response = await fetch(`${API_BASE}/me`, {
+                headers: {
+                    'Authorization': `Bearer ${jwtToken}`
+                }
+            });
+
+            if (response.ok) {
+                currentUser = await response.json();
+                showUserInterface();
+                loadPosts();
+            } else {
+                logout();
+            }
+        } catch (error) {
+            logout();
+        }
+    }
+
+    function showUserInterface() {
+        document.getElementById('loginForm').classList.remove('active');
+        document.getElementById('userInfo').classList.remove('hidden');
+        document.getElementById('username').textContent = currentUser.username;
+        document.getElementById('userRoles').textContent = currentUser.roles.join(', ');
+
+        // Show post form only for ADMIN
+        if (currentUser.roles.includes('ROLE_ADMIN')) {
+            document.getElementById('postForm').classList.add('active');
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('jwtToken');
+        jwtToken = null;
+        currentUser = null;
+        document.getElementById('loginForm').classList.add('active');
+        document.getElementById('userInfo').classList.add('hidden');
+        document.getElementById('postForm').classList.remove('active');
+        document.getElementById('editForm').classList.remove('active');
+        loadPosts();
+    }
+
+    async function loadPosts() {
+        try {
+            const headers = {};
+            if (jwtToken) {
+                headers['Authorization'] = `Bearer ${jwtToken}`;
+            }
+
+            const response = await fetch(`${API_BASE}/posts`, { headers });
+            const posts = await response.json();
+
+            displayPosts(posts);
+            document.getElementById('postsError').textContent = '';
+        } catch (error) {
+            document.getElementById('postsError').textContent = 'Fehler beim Laden der Beiträge';
+        }
+    }
+
+    function displayPosts(posts) {
+        const postsContainer = document.getElementById('posts');
+
+        if (posts.length === 0) {
+            postsContainer.innerHTML = '<p>Keine Posts vorhanden</p>';
+            return;
+        }
+
+        postsContainer.innerHTML = posts.map(post => `
+                <div class="post">
+                    <div class="post-title">${post.title}</div>
+                    ${post.content ? `<div class="post-content">${post.content}</div>` : '<div class="post-content"><em>Inhalt nur für eingeloggte Benutzer</em></div>'}
+                    ${post.imagePath ? `<img src="${API_BASE}${post.imagePath}" class="post-image" alt="Post Bild">` : ''}
+                    ${currentUser && currentUser.roles.includes('ROLE_ADMIN') ? `
+                        <div class="admin-controls">
+                            <button class="edit-btn" onclick="editPost(${post.id})">Bearbeiten</button>
+                            <button class="delete-btn" onclick="deletePost(${post.id})">Löschen</button>
+                        </div>
+                    ` : ''}
+                </div>
+            `).join('');
+    }
+
+    async function createPost() {
+        const title = document.getElementById('postTitle').value;
+        const content = document.getElementById('postContent').value;
+        const imageFile = document.getElementById('imageFile').files[0];
+
+        if (!title || !content) {
+            document.getElementById('postError').textContent = 'Titel und Inhalt sind erforderlich';
+            return;
+        }
+
+        if (content.length < 10) {
+            document.getElementById('postError').textContent = 'Inhalt muss mindestens 10 Zeichen haben';
+            return;
+        }
+
+        try {
+            // Create post first
+            const postData = { title, content };
+            const response = await fetch(`${API_BASE}/posts`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${jwtToken}`
+                },
+                body: JSON.stringify(postData)
+            });
+
+            if (response.ok) {
+                const newPost = await response.json();
+
+                // Upload image if provided
+                if (imageFile) {
+                    await uploadImage(newPost.id, imageFile);
+                }
+
+                document.getElementById('postTitle').value = '';
+                document.getElementById('postContent').value = '';
+                document.getElementById('imageFile').value = '';
+                document.getElementById('postError').textContent = '';
+                document.getElementById('postSuccess').textContent = 'Beitrag erfolgreich erstellt!';
+
+                setTimeout(() => {
+                    document.getElementById('postSuccess').textContent = '';
+                }, 3000);
+
+                loadPosts();
+            } else {
+                const error = await response.json();
+                document.getElementById('postError').textContent = error.error || 'Fehler beim Erstellen';
+            }
+        } catch (error) {
+            document.getElementById('postError').textContent = 'Verbindungsfehler';
+        }
+    }
+
+    async function uploadImage(postId, file) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            await fetch(`${API_BASE}/posts/${postId}/image`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${jwtToken}`
+                },
+                body: formData
+            });
+        } catch (error) {
+            console.error('Image upload failed:', error);
+        }
+    }
+
+    async function editPost(postId) {
+        try {
+            const response = await fetch(`${API_BASE}/posts/${postId}`, {
+                headers: {
+                    'Authorization': `Bearer ${jwtToken}`
+                }
+            });
+
+            if (response.ok) {
+                const post = await response.json();
+                document.getElementById('editPostId').value = post.id;
+                document.getElementById('editTitle').value = post.title;
+                document.getElementById('editContent').value = post.content;
+                document.getElementById('editForm').classList.add('active');
+                document.getElementById('postForm').classList.remove('active');
+            }
+        } catch (error) {
+            alert('Fehler beim Laden des Beitrags');
+        }
+    }
+
+    async function updatePost() {
+        const postId = document.getElementById('editPostId').value;
+        const title = document.getElementById('editTitle').value;
+        const content = document.getElementById('editContent').value;
+        const imageFile = document.getElementById('editImageFile').files[0];
+
+        if (!title || !content) {
+            document.getElementById('editError').textContent = 'Titel und Inhalt sind erforderlich';
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/posts/${postId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${jwtToken}`
+                },
+                body: JSON.stringify({ title, content })
+            });
+
+            if (response.ok) {
+                // Upload new image if provided
+                if (imageFile) {
+                    await uploadImage(postId, imageFile);
+                }
+
+                cancelEdit();
+                loadPosts();
+            } else {
+                const error = await response.json();
+                document.getElementById('editError').textContent = error.error || 'Fehler beim Aktualisieren';
+            }
+        } catch (error) {
+            document.getElementById('editError').textContent = 'Verbindungsfehler';
+        }
+    }
+
+    function cancelEdit() {
+        document.getElementById('editForm').classList.remove('active');
+        document.getElementById('postForm').classList.add('active');
+        document.getElementById('editError').textContent = '';
+    }
+
+    async function deletePost(postId) {
+        if (!confirm('Beitrag wirklich löschen?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/posts/${postId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${jwtToken}`
+                }
+            });
+
+            if (response.ok) {
+                loadPosts();
+            } else {
+                alert('Fehler beim Löschen');
+            }
+        } catch (error) {
+            alert('Verbindungsfehler');
+        }
+    }
+</script>
+</body>
+</html>
